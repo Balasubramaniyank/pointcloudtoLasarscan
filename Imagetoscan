@@ -1,0 +1,98 @@
+[24/02, 07:40] Dhoni Akash: #!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, LaserScan
+from cv_bridge import CvBridge
+import numpy as np
+ 
+class CameraDepthToScan(Node):
+    def __init__(self):
+        super().__init__('camera_depth_to_scan')
+ 
+        self.bridge = CvBridge()
+ 
+        self.create_subscription(
+            Image,
+            '/camera/depth/image_raw',
+            self.depth_cb,
+            10
+        )
+ 
+        self.scan_pub = self.create_publisher(
+            LaserScan,
+            '/camera_scan',
+            10
+        )
+ 
+        self.min_depth = 0.3
+        self.max_depth = 1.5
+        self.fov = np.deg2rad(60)
+ 
+    def depth_cb(self, msg):
+        depth = self.bridge.imgmsg_to_cv2(msg, '32FC1')
+        depth = np.nan_to_num(depth)
+ 
+        h, w = depth.shape
+        scan = LaserScan()
+        scan.header = msg.header
+        scan.angle_min = -self.fov / 2
+        scan.angle_max = self.fov / 2
+        scan.angle_increment = self.fov / w
+        scan.range_min = self.min_depth
+        scan.range_max = self.max_depth
+ 
+        scan.ranges = []
+        for i in range(w):
+            col = depth[:, i]
+            valid = col[(col > self.min_depth) & (col < self.max_depth)]
+            scan.ranges.append(float(np.min(valid)) if len(valid) else float('inf'))
+ 
+        self.scan_pub.publish(scan)
+ 
+def main():
+    rclpy.init()
+    rclpy.spin(CameraDepthToScan())
+    rclpy.shutdown()
+ 
+if __name__ == '__main__':
+    main()
+[24/02, 07:40] Dhoni Akash: global_costmap:
+  global_costmap:
+    ros__parameters:
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+ 
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        observation_sources: lidar camera
+ 
+        lidar:
+          topic: /scan
+          data_type: LaserScan
+          marking: true
+          clearing: true
+          obstacle_range: 3.0
+          raytrace_range: 3.5
+ 
+        camera:
+          topic: /camera_scan
+          data_type: LaserScan
+          marking: true
+          clearing: true
+          obstacle_range: 1.5
+          raytrace_range: 2.0
+[24/02, 07:40] Dhoni Akash: obstacle_layer:
+  plugin: "nav2_costmap_2d::VoxelLayer"
+  observation_sources: lidar camera
+ 
+  lidar:
+    topic: /scan
+    data_type: LaserScan
+    marking: true
+ 
+  camera:
+    topic: /camera/depth/points
+    data_type: PointCloud2
+    marking: true
+ 
+  z_resolution: 0.05
+  z_voxels: 10
